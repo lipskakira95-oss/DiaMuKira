@@ -1,6 +1,51 @@
 # Початок розробки
 
-Реалізовано перший крок: 152 авторські чернетки в CSV, імпортер SQLite і Go API. Flutter-інтерфейси й клієнтську Drift-базу ще не реалізовано. [Статус матеріалів](../content/README.md) та [архітектура бази](database.md).
+Реалізовано SQLite-каталог, Go API та перший Flutter-клієнт для проходження раундів. Платформні проєкти Android/iOS створено, але їхні нативні збірки ще не перевірено. Клієнтська Drift-база, постійний прогрес, звук і вібрація — наступні кроки. [Статус матеріалів](../content/README.md) та [архітектура бази](database.md).
+
+## Flutter та веб
+
+Використовується Flutter 3.50.0 / Dart 3.14.0. SDK скопійовано в `.local/tools/flutter`; проєктні Pub/Gradle/Go-кеші налаштовуються wrapper-скриптами. Для першого налаштування на іншому Windows-комп’ютері:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/bootstrap-flutter.ps1 -SourceSdk C:/path/to/flutter
+```
+
+`SourceSdk` — фактична папка вже встановленого SDK; приклад потрібно замінити. На CI SDK клонується з офіційного Flutter tag 3.50.0 прямо в проєкт. Далі з кореня:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sync-content.ps1
+```
+
+Із `apps/quiz` завантажити пакети через `../../scripts/flutter.ps1 pub get` у новому PowerShell-процесі з process-only Bypass або запускати wrapper як у наступному прикладі:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File ../../scripts/flutter.ps1 pub get
+powershell -NoProfile -ExecutionPolicy Bypass -File ../../scripts/flutter.ps1 analyze --no-pub
+```
+
+Із кореня виконати:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-flutter.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-web.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/serve-web.ps1
+```
+
+Потім відкрити `http://127.0.0.1:8080/`. Go одночасно видає API і зібрану вебверсію; окремого вебсервера не потрібно. Для Flutter dev-сервера на `http://localhost:5173` запустити API з `-dev-origin http://localhost:5173` і Flutter з `--dart-define=API_BASE_URL=http://127.0.0.1:8080`. Для мобільних пристроїв вказати доступний HTTPS API через цей самий параметр; без доступного API завантажується набір зі збірки.
+
+Є сценарій початку, вибору категорії/раунду, відповідей, пояснення, результату, повтору та підтвердження виходу. Порядок можна перемішати. Галочка показує найкращий безпомилковий результат цієї сесії; постійне збереження ще не реалізовано. Глибоке посилання обслуговується вебсервером, але відновлення конкретного екрана через URL у Flutter ще попереду. Офлайн-проходження з bundled-набором не означає повного офлайн-першого завантаження вебсайту.
+
+Для браузерного smoke потрібен установлений Chrome; Go-залежності тесту й профіль браузера залишаються в проєкті:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/browser-dependencies.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/smoke-browser.ps1
+```
+
+Chrome-шлях і URL можна перевизначити параметрами `-Chrome` та `-Url`. Android/iPhone потребують окремих SDK, пристроїв і подальших нативних перевірок; Windows не підтверджує готовність iOS.
+
+## Go API та SQLite
 
 Потрібен Go 1.27 або новіший; зараз використано Go 1.27.4. У PowerShell із кореня репозиторію:
 

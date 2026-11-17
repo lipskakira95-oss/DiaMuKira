@@ -1,0 +1,87 @@
+openapi: 3.1.0
+info:
+  title: Дія Ми — API навчальних матеріалів
+  version: 1.0.0
+servers:
+  - url: http://127.0.0.1:8080
+paths:
+  /health:
+    get:
+      summary: Стан процесу сервера
+      responses:
+        '200':
+          description: Сервер працює
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: {type: string, const: ok}
+  /api/v1/content/version:
+    get:
+      summary: Версія та режим поточного набору
+      responses:
+        '200':
+          description: Версії схеми та матеріалів
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Version'
+        '304': {description: Версія не змінилася}
+        '503': {description: Немає матеріалів або production не дозволяє draft}
+  /api/v1/content:
+    get:
+      summary: Цілісний snapshot запитань із SQLite
+      parameters:
+        - in: header
+          name: If-None-Match
+          schema: {type: string}
+      responses:
+        '200':
+          description: Навчальний набір; правильні відповіді доступні для самонавчання
+          headers:
+            ETag:
+              schema: {type: string}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Bundle'
+        '304': {description: Вміст не змінився; тіло відсутнє}
+        '503': {description: Набір недоступний або не затверджений для production}
+components:
+  schemas:
+    Version:
+      type: object
+      required: [schema_version, content_version, mode]
+      properties:
+        schema_version: {type: integer, const: 1}
+        content_version: {type: string, minLength: 1}
+        mode: {type: string, enum: [draft, production]}
+    Bundle:
+      allOf:
+        - $ref: '#/components/schemas/Version'
+        - type: object
+          required: [questions]
+          properties:
+            questions:
+              type: array
+              minItems: 1
+              items:
+                $ref: '#/components/schemas/Question'
+    Question:
+      type: object
+      required: [id, category_id, category_name, round_number, round_title, position, text, correct_answer, explanation, status, source, content_version]
+      properties:
+        id: {type: string, minLength: 1}
+        category_id: {type: string, enum: [children, students, teachers, parents, media]}
+        category_name: {type: string, minLength: 1}
+        round_number: {type: integer, minimum: 1, maximum: 4}
+        round_title: {type: string, minLength: 1}
+        position: {type: integer, minimum: 1, maximum: 10}
+        text: {type: string, minLength: 1}
+        correct_answer: {type: boolean}
+        explanation: {type: string, minLength: 1}
+        status: {type: string, enum: [draft, approved]}
+        source: {type: string, minLength: 1}
+        content_version: {type: string, minLength: 1}

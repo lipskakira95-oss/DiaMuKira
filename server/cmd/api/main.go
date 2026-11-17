@@ -14,6 +14,8 @@ func main() {
 	dbPath := flag.String("db", "../.local/data/quiz.sqlite", "existing SQLite catalog")
 	addr := flag.String("addr", "127.0.0.1:8080", "HTTP listen address")
 	allowDraft := flag.Bool("allow-draft", false, "allow unreviewed content for local development")
+	webRoot := flag.String("web", "", "optional compiled Flutter web directory")
+	devOrigin := flag.String("dev-origin", "", "optional single allowed development origin")
 	flag.Parse()
 	store, err := catalog.Open(*dbPath)
 	if err != nil {
@@ -27,7 +29,14 @@ func main() {
 	if !*allowDraft && mode != "production" {
 		log.Fatal("Production refuses draft content; local development requires -allow-draft")
 	}
-	server := &http.Server{Addr: *addr, Handler: httpapi.New(store, !*allowDraft), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second}
+	var handler http.Handler = httpapi.New(store, !*allowDraft)
+	if *devOrigin != "" {
+		handler = httpapi.WithCORS(handler, *devOrigin)
+	}
+	if *webRoot != "" {
+		handler = httpapi.WithWeb(handler, *webRoot)
+	}
+	server := &http.Server{Addr: *addr, Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second}
 	log.Printf("Quiz API listening on %s (allow-draft=%t)", *addr, *allowDraft)
 	log.Fatal(server.ListenAndServe())
 }

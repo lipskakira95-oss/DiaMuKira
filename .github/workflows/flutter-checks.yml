@@ -1,0 +1,51 @@
+name: Flutter client
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  client:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache: false
+      - name: Project-local Flutter SDK
+        shell: powershell
+        run: |
+          git clone --depth 1 --branch 3.50.0 https://github.com/flutter/flutter.git .local/tools/flutter
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./scripts/flutter.ps1 --version
+      - name: Project-local Pub dependencies
+        shell: powershell
+        working-directory: apps/quiz
+        run: ../../scripts/flutter.ps1 pub get --enforce-lockfile
+      - name: Verify generated SQLite snapshot
+        shell: powershell
+        run: |
+          ./scripts/sync-content.ps1
+          git diff --exit-code -- apps/quiz/assets/content/questions.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Formatting
+        shell: powershell
+        run: ./scripts/format-flutter.ps1 -Check
+      - name: Analyze
+        shell: powershell
+        working-directory: apps/quiz
+        run: ../../scripts/flutter.ps1 analyze --no-pub
+      - name: Unit and widget tests
+        shell: powershell
+        run: ./scripts/test-flutter.ps1
+      - name: Web build
+        shell: powershell
+        run: ./scripts/build-web.ps1
+      - name: Build Go web host
+        shell: powershell
+        run: ./scripts/build.ps1
+      - name: Headless Chrome round smoke
+        shell: powershell
+        run: ./scripts/smoke-web.ps1
