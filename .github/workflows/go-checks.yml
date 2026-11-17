@@ -1,0 +1,31 @@
+name: Go SQLite catalog
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  catalog:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache: false
+      - name: Install pinned modules into project cache
+        shell: powershell
+        run: |
+          . ./scripts/env.ps1
+          Set-Location server
+          go mod download
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Unit and database tests
+        shell: powershell
+        run: ./scripts/test.ps1 -Evidence ci
+      - name: Build and vet
+        shell: powershell
+        run: ./scripts/build.ps1
+      - name: Running API smoke
+        shell: powershell
+        run: ./scripts/smoke-api.ps1

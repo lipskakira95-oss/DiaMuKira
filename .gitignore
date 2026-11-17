@@ -1,0 +1,14 @@
+# Local technical analysis report
+/TECHNICAL_REPORT.local.md
+
+# Local planning, designs, reports, tooling and dependency caches
+/.local/
+/Agent.md
+/insight.md
+/handoff.md
+
+# Runtime SQLite databases and journals (CSV and SQL migrations stay tracked)
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
