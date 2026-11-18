@@ -35,6 +35,10 @@ func WithCORS(next http.Handler, allowedOrigin string) http.Handler {
 func WithWeb(api http.Handler, root string) http.Handler {
 	files := http.FileServer(http.Dir(root))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Drift can use the browser's persistent Origin Private File System when
+		// the app is cross-origin isolated. Browsers without it use IndexedDB.
+		w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
+		w.Header().Set("Cross-Origin-Embedder-Policy", "require-corp")
 		if strings.HasPrefix(r.URL.Path, "/api/") || r.URL.Path == "/health" {
 			api.ServeHTTP(w, r)
 			return

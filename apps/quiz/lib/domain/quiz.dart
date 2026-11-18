@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'catalog.dart';
+import 'user_data.dart';
 
 class QuizAttempt {
   QuizAttempt(List<Question> source, {bool shuffle = false, Random? random}) {
@@ -62,18 +63,38 @@ class RoundProgress {
 }
 
 class SessionProgress {
+  SessionProgress([Iterable<SavedRoundProgress> saved = const []]) {
+    for (final item in saved) {
+      _rounds[item.key] = RoundProgress(
+        last: item.lastScore,
+        best: item.bestScore,
+        total: item.total,
+      );
+    }
+  }
+
   final _rounds = <String, RoundProgress>{};
   String _key(Question q) =>
       '${q.contentVersion}/${q.categoryId}/${q.roundNumber}';
   RoundProgress? forRound(Question q) => _rounds[_key(q)];
-  void record(QuizAttempt attempt) {
+  SavedRoundProgress record(QuizAttempt attempt) {
     if (!attempt.finished) throw StateError('Unfinished attempt');
-    final key = _key(attempt.current);
+    final question = attempt.current;
+    final key = _key(question);
     final previous = _rounds[key];
-    _rounds[key] = RoundProgress(
+    final updated = RoundProgress(
       last: attempt.score,
       best: max(previous?.best ?? 0, attempt.score),
       total: attempt.total,
+    );
+    _rounds[key] = updated;
+    return SavedRoundProgress(
+      contentVersion: question.contentVersion,
+      categoryId: question.categoryId,
+      roundNumber: question.roundNumber,
+      lastScore: updated.last,
+      bestScore: updated.best,
+      total: updated.total,
     );
   }
 }

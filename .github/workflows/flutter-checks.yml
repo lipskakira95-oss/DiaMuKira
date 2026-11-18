@@ -24,6 +24,12 @@ jobs:
         shell: powershell
         working-directory: apps/quiz
         run: ../../scripts/flutter.ps1 pub get --enforce-lockfile
+      - name: Verify Drift web binaries
+        shell: powershell
+        run: ./scripts/verify-drift-assets.ps1
+      - name: Verify generated Drift code
+        shell: powershell
+        run: ./scripts/generate-drift.ps1 -Check
       - name: Verify generated SQLite snapshot
         shell: powershell
         run: |

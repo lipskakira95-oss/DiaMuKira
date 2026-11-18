@@ -1,6 +1,6 @@
 # Початок розробки
 
-Реалізовано SQLite-каталог, Go API та перший Flutter-клієнт для проходження раундів. Платформні проєкти Android/iOS створено, але їхні нативні збірки ще не перевірено. Клієнтська Drift-база, постійний прогрес, звук і вібрація — наступні кроки. [Статус матеріалів](../content/README.md) та [архітектура бази](database.md).
+Реалізовано SQLite-каталог, Go API та Flutter-клієнт із постійною Drift/SQLite-базою. Прогрес, історія спроб, чотири налаштування й перевірений кеш матеріалів зберігаються локально. Вебоболонка працює офлайн після першого успішного завантаження. Платформні проєкти Android/iOS створено, але їхні нативні збірки та фізичний звук/вібрацію ще потрібно перевірити на пристроях. [Статус матеріалів](../content/README.md) та [архітектура бази](database.md).
 
 ## Flutter та веб
 
@@ -14,6 +14,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/bootstrap-flutter.ps
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sync-content.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-drift-assets.ps1
 ```
 
 Із `apps/quiz` завантажити пакети через `../../scripts/flutter.ps1 pub get` у новому PowerShell-процесі з process-only Bypass або запускати wrapper як у наступному прикладі:
@@ -27,6 +28,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File ../../scripts/flutter.ps1 an
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-flutter.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/generate-drift.ps1 -Check
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-web.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/serve-web.ps1
@@ -34,16 +36,18 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/serve-web.ps1
 
 Потім відкрити `http://127.0.0.1:8080/`. Go одночасно видає API і зібрану вебверсію; окремого вебсервера не потрібно. Для Flutter dev-сервера на `http://localhost:5173` запустити API з `-dev-origin http://localhost:5173` і Flutter з `--dart-define=API_BASE_URL=http://127.0.0.1:8080`. Для мобільних пристроїв вказати доступний HTTPS API через цей самий параметр; без доступного API завантажується набір зі збірки.
 
-Є сценарій початку, вибору категорії/раунду, відповідей, пояснення, результату, повтору та підтвердження виходу. Порядок можна перемішати. Галочка показує найкращий безпомилковий результат цієї сесії; постійне збереження ще не реалізовано. Глибоке посилання обслуговується вебсервером, але відновлення конкретного екрана через URL у Flutter ще попереду. Офлайн-проходження з bundled-набором не означає повного офлайн-першого завантаження вебсайту.
+Є сценарій початку, вибору категорії/раунду, відповідей, пояснення, результату, повтору та підтвердження виходу. Порядок можна перемішати. Галочка показує найкращий безпомилковий результат для поточної версії матеріалів; гірша повторна спроба не стирає це досягнення. Прогрес і налаштування залишаються після перезапуску. Звук має різні системні сигнали для правильної та неправильної відповіді, вібрація викликається лише при помилці; непідтримувана функція не зупиняє тест.
+
+Drift використовує `sqlite3.wasm` і `drift_worker.js` версії 2.35.4. Їхні SHA256 перевіряє `scripts/verify-drift-assets.ps1`. Власний service worker готує оболонку до офлайн-роботи й при доступній мережі оновлює кеш. Перший візит потребує мережі; після завершення підготовки браузерний smoke підтверджує перезавантаження без мережі та відновлення прогресу з SQLite. Очищення даних сайту видаляє локальний прогрес. Глибоке посилання обслуговується вебсервером, але відновлення конкретного екрана через URL у Flutter ще попереду.
 
 Для браузерного smoke потрібен установлений Chrome; Go-залежності тесту й профіль браузера залишаються в проєкті:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/browser-dependencies.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/smoke-browser.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/smoke-web.ps1
 ```
 
-Chrome-шлях і URL можна перевизначити параметрами `-Chrome` та `-Url`. Android/iPhone потребують окремих SDK, пристроїв і подальших нативних перевірок; Windows не підтверджує готовність iOS.
+Smoke проходить раунд 7/7, перезавантажує сторінку, перевіряє постійний прогрес, вимикає мережу через Chrome DevTools Protocol і повторює перезавантаження. Chrome-шлях і URL можна перевизначити параметрами `scripts/smoke-browser.ps1`. Android/iPhone потребують окремих SDK, пристроїв і подальших нативних перевірок; Windows не підтверджує готовність iOS.
 
 ## Go API та SQLite
 

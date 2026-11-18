@@ -5,17 +5,20 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 
 import '../domain/catalog.dart';
+import '../domain/user_data.dart';
 
 class ContentRepository {
   ContentRepository({
     this.client,
     this.base,
+    this.store,
     Future<String> Function()? loadBundled,
   }) : _loadBundled =
            loadBundled ??
            (() => rootBundle.loadString('assets/content/questions.json'));
   final http.Client? client;
   final Uri? base;
+  final UserStore? store;
   final Future<String> Function() _loadBundled;
   Catalog _decode(String text, String origin) {
     final decoded = jsonDecode(text);
@@ -38,12 +41,36 @@ class ContentRepository {
           .get(endpoint.resolve('/api/v1/content'))
           .timeout(const Duration(seconds: 4));
       if (response.statusCode == 200) {
-        return _decode(utf8.decode(response.bodyBytes), 'server');
+        final text = utf8.decode(response.bodyBytes);
+        final catalog = _decode(text, 'server');
+        try {
+          await store?.saveContent(
+            CachedContent(
+              version: catalog.version,
+              mode: catalog.mode,
+              json: text,
+            ),
+          );
+        } on Exception {
+          // A storage failure must not hide valid content from the user.
+        }
+        return catalog;
       }
     } on Exception {
       // The reviewed status of bundled data is validated just like API content.
     } finally {
       if (this.client == null) client.close();
+    }
+    try {
+      final cached = await store?.loadContent();
+      if (cached != null) {
+        final catalog = _decode(cached.json, 'cache');
+        if (catalog.version == cached.version && catalog.mode == cached.mode) {
+          return catalog;
+        }
+      }
+    } on Exception {
+      // Corrupt or unavailable local data must not replace the bundled copy.
     }
     return _decode(await _loadBundled(), 'bundled');
   }

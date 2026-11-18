@@ -1,10 +1,15 @@
 import 'dart:math';
+import 'dart:async';
 
 import 'package:material_ui/material_ui.dart';
 
 import 'data/content_repository.dart';
+import 'data/local_database.dart';
+import 'data/user_store.dart';
 import 'domain/catalog.dart';
 import 'domain/quiz.dart';
+import 'domain/user_data.dart';
+import 'platform/answer_feedback.dart';
 
 const yellow = Color(0xFFF5C928),
     ink = Color(0xFF181818),
@@ -13,8 +18,10 @@ const green = Color(0xFF247A43), red = Color(0xFFB73535);
 typedef CatalogLoader = Future<Catalog> Function();
 
 class QuizApp extends StatelessWidget {
-  const QuizApp({super.key, this.loadCatalog});
+  const QuizApp({super.key, this.loadCatalog, this.store, this.feedback});
   final CatalogLoader? loadCatalog;
+  final UserStore? store;
+  final AnswerFeedback? feedback;
   @override
   Widget build(BuildContext context) => MaterialApp(
     title: 'Дія Ми',
@@ -48,31 +55,46 @@ class QuizApp extends StatelessWidget {
         bodyLarge: TextStyle(fontSize: 18, color: ink),
       ),
     ),
-    home: QuizHome(loadCatalog: loadCatalog ?? ContentRepository().load),
+    home: QuizHome(loadCatalog: loadCatalog, store: store, feedback: feedback),
   );
 }
 
 enum _Page { welcome, categories, rounds, quiz, result }
 
 class QuizHome extends StatefulWidget {
-  const QuizHome({super.key, required this.loadCatalog});
-  final CatalogLoader loadCatalog;
+  const QuizHome({super.key, this.loadCatalog, this.store, this.feedback});
+  final CatalogLoader? loadCatalog;
+  final UserStore? store;
+  final AnswerFeedback? feedback;
   @override
   State<QuizHome> createState() => _QuizHomeState();
 }
 
 class _QuizHomeState extends State<QuizHome> {
   Catalog? _catalog;
-  bool _loading = true, _failed = false, _shuffle = false, _explanations = true;
+  bool _loading = true, _failed = false;
   _Page _page = _Page.welcome;
   String? _category;
   QuizAttempt? _attempt;
-  final _progress = SessionProgress();
+  late final UserStore _store;
+  late final AnswerFeedback _feedback;
+  late final bool _ownsStore;
+  AppSettings _settingsState = const AppSettings.defaults();
+  SessionProgress _progress = SessionProgress();
   String _phrase = '';
   @override
   void initState() {
     super.initState();
+    _ownsStore = widget.store == null;
+    _store = widget.store ?? DriftUserStore(AppDatabase.defaults());
+    _feedback = widget.feedback ?? const FlutterAnswerFeedback();
     _load();
+  }
+
+  @override
+  void dispose() {
+    if (_ownsStore) _store.close();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -81,10 +103,26 @@ class _QuizHomeState extends State<QuizHome> {
       _failed = false;
     });
     try {
-      final catalog = await widget.loadCatalog();
+      AppSettings settings;
+      try {
+        settings = await _store.loadSettings();
+      } on Exception {
+        settings = const AppSettings.defaults();
+      }
+      final catalog =
+          await (widget.loadCatalog?.call() ??
+              ContentRepository(store: _store).load());
+      List<SavedRoundProgress> savedProgress;
+      try {
+        savedProgress = await _store.loadProgress(catalog.version);
+      } on Exception {
+        savedProgress = const [];
+      }
       if (mounted) {
         setState(() {
           _catalog = catalog;
+          _settingsState = settings;
+          _progress = SessionProgress(savedProgress);
           _loading = false;
         });
       }
@@ -126,24 +164,70 @@ class _QuizHomeState extends State<QuizHome> {
   void _start(int round) => setState(() {
     _attempt = QuizAttempt(
       _catalog!.inRound(_category!, round),
-      shuffle: _shuffle,
+      shuffle: _settingsState.shuffle,
     );
     _page = _Page.quiz;
   });
-  void _answer(bool value) => setState(() => _attempt!.submit(value));
-  void _next() => setState(() {
-    _attempt!.next();
-    if (_attempt!.finished) {
-      _progress.record(_attempt!);
-      _page = _Page.result;
-      const phrases = [
-        'Кожна спроба допомагає вчитися.',
-        'Дякуємо за уважність до інших.',
-        'Нові знання починаються з цікавості.',
-      ];
-      _phrase = phrases[Random().nextInt(phrases.length)];
+  void _answer(bool value) {
+    late bool accepted;
+    setState(() => accepted = _attempt!.submit(value));
+    if (accepted) {
+      unawaited(_sendFeedback(_attempt!.lastCorrect!));
     }
-  });
+  }
+
+  Future<void> _sendFeedback(bool correct) async {
+    try {
+      await _feedback.onAnswer(correct: correct, settings: _settingsState);
+    } on Exception {
+      // Unsupported sound or haptics must never interrupt a quiz attempt.
+    }
+  }
+
+  Future<void> _next() async {
+    SavedRoundProgress? completed;
+    setState(() {
+      _attempt!.next();
+      if (_attempt!.finished) {
+        completed = _progress.record(_attempt!);
+        _page = _Page.result;
+        const phrases = [
+          'Кожна спроба допомагає вчитися.',
+          'Дякуємо за уважність до інших.',
+          'Нові знання починаються з цікавості.',
+        ];
+        _phrase = phrases[Random().nextInt(phrases.length)];
+      }
+    });
+    if (completed != null) {
+      try {
+        await _store.saveCompletedAttempt(completed!);
+      } on Exception {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Не вдалося зберегти прогрес на цьому пристрої.'),
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  Future<void> _saveSettings(AppSettings settings, StateSetter refresh) async {
+    setState(() => _settingsState = settings);
+    refresh(() {});
+    try {
+      await _store.saveSettings(settings);
+    } on Exception {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Не вдалося зберегти налаштування.')),
+        );
+      }
+    }
+  }
+
   Future<void> _settings() async {
     await showModalBottomSheet<void>(
       context: context,
@@ -166,40 +250,54 @@ class _QuizHomeState extends State<QuizHome> {
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
                     title: const Text('Пояснювати помилки'),
-                    value: _explanations,
+                    value: _settingsState.explanations,
                     onChanged: (value) {
-                      setState(() => _explanations = value);
-                      refresh(() {});
+                      _saveSettings(
+                        _settingsState.copyWith(explanations: value),
+                        refresh,
+                      );
                     },
                   ),
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
                     title: const Text('Перемішувати запитання'),
                     subtitle: const Text('Застосовується до нової спроби.'),
-                    value: _shuffle,
+                    value: _settingsState.shuffle,
                     onChanged: (value) {
-                      setState(() => _shuffle = value);
-                      refresh(() {});
+                      _saveSettings(
+                        _settingsState.copyWith(shuffle: value),
+                        refresh,
+                      );
                     },
                   ),
-                  const SwitchListTile(
+                  SwitchListTile(
                     contentPadding: EdgeInsets.zero,
-                    title: Text('Звукові ефекти'),
-                    subtitle: Text('Ще недоступні в цій версії.'),
-                    value: false,
-                    onChanged: null,
+                    title: const Text('Звукові ефекти'),
+                    subtitle: const Text(
+                      'Використовуються там, де підтримуються.',
+                    ),
+                    value: _settingsState.sound,
+                    onChanged: (value) {
+                      _saveSettings(
+                        _settingsState.copyWith(sound: value),
+                        refresh,
+                      );
+                    },
                   ),
-                  const SwitchListTile(
+                  SwitchListTile(
                     contentPadding: EdgeInsets.zero,
-                    title: Text('Вібрація при помилці'),
-                    subtitle: Text('Ще недоступна в цій версії.'),
-                    value: false,
-                    onChanged: null,
+                    title: const Text('Вібрація при помилці'),
+                    subtitle: const Text('Залежить від можливостей пристрою.'),
+                    value: _settingsState.vibration,
+                    onChanged: (value) {
+                      _saveSettings(
+                        _settingsState.copyWith(vibration: value),
+                        refresh,
+                      );
+                    },
                   ),
                   const SizedBox(height: 12),
-                  const Text(
-                    'Налаштування та прогрес діють до закриття застосунку.',
-                  ),
+                  const Text('Налаштування зберігаються на цьому пристрої.'),
                   const SizedBox(height: 16),
                   FilledButton(
                     onPressed: () => Navigator.pop(context),
@@ -554,7 +652,7 @@ class _QuizHomeState extends State<QuizHome> {
                 ),
               ),
             ),
-            if (!attempt.lastCorrect! && _explanations)
+            if (!attempt.lastCorrect! && _settingsState.explanations)
               Padding(
                 padding: const EdgeInsets.only(top: 12),
                 child: Text(
@@ -614,7 +712,7 @@ class _QuizHomeState extends State<QuizHome> {
           ],
         ),
         const SizedBox(height: 16),
-        const Text('Прогрес цієї сесії збережено до закриття застосунку.'),
+        const Text('Прогрес збережено на цьому пристрої.'),
       ],
     ),
   );

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/chromedp"
 	"log"
 	"time"
@@ -23,6 +24,19 @@ func clickText(text string) chromedp.ActionFunc {
 	}
 }
 
+func enableSemantics() chromedp.Tasks {
+	var ready bool
+	return chromedp.Tasks{
+		chromedp.Poll(`document.querySelector('flt-semantics-placeholder')!==null`, &ready),
+		chromedp.Evaluate(`document.querySelector('flt-semantics-placeholder').click()`, nil),
+	}
+}
+
+func waitText(text string) chromedp.Action {
+	quoted, _ := json.Marshal(text)
+	return chromedp.Poll(fmt.Sprintf(`[...document.querySelectorAll('flt-semantics')].some(el=>((el.getAttribute('aria-label')||'')+' '+el.textContent).includes(%s))`, quoted), new(bool), chromedp.WithPollingInterval(100*time.Millisecond))
+}
+
 func main() {
 	url := flag.String("url", "http://127.0.0.1:8080/", "running compiled app")
 	chrome := flag.String("chrome", `C:/Program Files/Google/Chrome/Application/chrome.exe`, "installed Chrome")
@@ -35,9 +49,7 @@ func main() {
 	defer closeBrowser()
 	ctx, timeout := context.WithTimeout(browser, 90*time.Second)
 	defer timeout()
-	var ready bool
-	err := chromedp.Run(ctx, chromedp.Navigate(*url), chromedp.Poll(`document.querySelector('flt-semantics-placeholder')!==null`, &ready),
-		chromedp.Evaluate(`document.querySelector('flt-semantics-placeholder').click()`, nil),
+	err := chromedp.Run(ctx, chromedp.Navigate(*url), enableSemantics(),
 		clickText("Розпочнімо"), clickText("Діти 5–12 років"), clickText("Раунд 1"))
 	if err != nil {
 		log.Fatal(err)
@@ -51,9 +63,25 @@ func main() {
 			log.Fatal(err)
 		}
 	}
-	var result bool
-	if err = chromedp.Run(ctx, chromedp.Poll(`[...document.querySelectorAll('flt-semantics')].some(el=>(el.getAttribute('aria-label')||el.textContent).includes('7 із 7'))`, &result), clickText("Повторити")); err != nil {
+	if err = chromedp.Run(ctx, waitText("7 із 7"), chromedp.Sleep(500*time.Millisecond)); err != nil {
 		log.Fatal(err)
 	}
-	fmt.Println("BROWSER SMOKE PASS: welcome -> category -> 7 answers -> 7/7 -> retry")
+
+	// Wait until the app shell is installed, reload, and verify SQLite progress.
+	if err = chromedp.Run(ctx,
+		chromedp.Poll(`navigator.serviceWorker.controller !== null`, new(bool)),
+		chromedp.Reload(), enableSemantics(), clickText("Розпочнімо"),
+		clickText("Діти 5–12 років"), waitText("найкраще 7")); err != nil {
+		log.Fatal(err)
+	}
+
+	// The same reload must work with all network requests disabled. The shell is
+	// served by the service worker and content/progress by the local Drift DB.
+	if err = chromedp.Run(ctx,
+		network.EmulateNetworkConditions(true, 0, 0, 0),
+		chromedp.Reload(), enableSemantics(), clickText("Розпочнімо"),
+		clickText("Діти 5–12 років"), waitText("найкраще 7")); err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("BROWSER SMOKE PASS: 7/7 -> persistent SQLite progress -> offline reload")
 }

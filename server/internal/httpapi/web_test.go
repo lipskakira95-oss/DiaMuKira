@@ -54,3 +54,18 @@ func TestWebFallbackDoesNotSwallowAPIOrMissingAssets(t *testing.T) {
 		}
 	}
 }
+
+func TestWebEnablesPersistentSQLiteIsolationHeaders(t *testing.T) {
+	root := t.TempDir()
+	os.WriteFile(filepath.Join(root, "index.html"), []byte("quiz-shell"), 0600)
+	handler := WithWeb(http.NotFoundHandler(), root)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest("GET", "/", nil))
+
+	if got := recorder.Header().Get("Cross-Origin-Opener-Policy"); got != "same-origin" {
+		t.Fatalf("Cross-Origin-Opener-Policy = %q", got)
+	}
+	if got := recorder.Header().Get("Cross-Origin-Embedder-Policy"); got != "require-corp" {
+		t.Fatalf("Cross-Origin-Embedder-Policy = %q", got)
+	}
+}

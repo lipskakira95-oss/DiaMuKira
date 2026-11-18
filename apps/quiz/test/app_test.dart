@@ -1,9 +1,26 @@
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:diia_my/app.dart';
+import 'package:diia_my/data/memory_user_store.dart';
 import 'package:diia_my/domain/catalog.dart';
+import 'package:diia_my/domain/user_data.dart';
+import 'package:diia_my/platform/answer_feedback.dart';
 
 import 'domain/quiz_test.dart' show question;
+
+class RecordingFeedback implements AnswerFeedback {
+  bool? correct;
+  AppSettings? settings;
+
+  @override
+  Future<void> onAnswer({
+    required bool correct,
+    required AppSettings settings,
+  }) async {
+    this.correct = correct;
+    this.settings = settings;
+  }
+}
 
 void main() {
   Future<void> tapText(WidgetTester tester, String text) async {
@@ -18,6 +35,7 @@ void main() {
   ) async {
     await tester.pumpWidget(
       QuizApp(
+        store: MemoryUserStore(),
         loadCatalog: () async =>
             Catalog([question('q1', 1)], version: 'v1', mode: 'draft'),
       ),
@@ -37,6 +55,7 @@ void main() {
   testWidgets('loading failure offers retry', (tester) async {
     await tester.pumpWidget(
       QuizApp(
+        store: MemoryUserStore(),
         loadCatalog: () async => throw const FormatException('bad content'),
       ),
     );
@@ -57,6 +76,7 @@ void main() {
           child: child!,
         ),
         home: QuizHome(
+          store: MemoryUserStore(),
           loadCatalog: () async =>
               Catalog([question('q1', 1)], version: 'v1', mode: 'draft'),
         ),
@@ -65,4 +85,65 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('completed progress is restored after rebuilding the app', (
+    tester,
+  ) async {
+    final store = MemoryUserStore();
+    final catalog = Catalog([question('q1', 1)], version: 'v1', mode: 'draft');
+
+    await tester.pumpWidget(
+      QuizApp(store: store, loadCatalog: () async => catalog),
+    );
+    await tester.pumpAndSettle();
+    await tapText(tester, 'Розпочнімо');
+    await tapText(tester, 'Діти 5–12 років');
+    await tapText(tester, 'Раунд 1');
+    await tapText(tester, 'Так');
+    await tapText(tester, 'Завершити раунд');
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+    await tester.pumpWidget(
+      QuizApp(store: store, loadCatalog: () async => catalog),
+    );
+    await tester.pumpAndSettle();
+    await tapText(tester, 'Розпочнімо');
+    await tapText(tester, 'Діти 5–12 років');
+
+    expect(find.textContaining('1 із 1 · найкраще 1'), findsOneWidget);
+    expect(find.textContaining('Без помилок'), findsOneWidget);
+  });
+
+  testWidgets(
+    'answer feedback receives persisted sound and vibration settings',
+    (tester) async {
+      final feedback = RecordingFeedback();
+      final store = MemoryUserStore(
+        settings: const AppSettings(
+          explanations: true,
+          sound: true,
+          vibration: true,
+          shuffle: false,
+        ),
+      );
+      await tester.pumpWidget(
+        QuizApp(
+          store: store,
+          feedback: feedback,
+          loadCatalog: () async =>
+              Catalog([question('q1', 1)], version: 'v1', mode: 'draft'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tapText(tester, 'Розпочнімо');
+      await tapText(tester, 'Діти 5–12 років');
+      await tapText(tester, 'Раунд 1');
+      await tapText(tester, 'Ні');
+
+      expect(feedback.correct, isFalse);
+      expect(feedback.settings?.sound, isTrue);
+      expect(feedback.settings?.vibration, isTrue);
+    },
+  );
 }
