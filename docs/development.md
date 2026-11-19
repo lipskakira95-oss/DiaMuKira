@@ -72,6 +72,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/smoke-api.ps1
 
 Тести включають читання CSV, BOM, некоректні відповіді, дублікати, розподіл раундів, збереження після закриття, production guard та HTTP-коди. Smoke створює справжню SQLite-БД, запускає зібраний сервер на тимчасовому локальному порту, перевіряє 152 записи й завершує лише створений ним процес.
 
+## Android
+
+Android debug APK складається командою `scripts/build-android.ps1`; основний offline/restart сценарій запускається через `scripts/smoke-android.ps1` на доступному пристрої. Точні версії SDK, конфігурація API, правила HTTPS і обмеження підпису описані в [Android-інструкції](android.md).
+
 Для 3-хвилинного журналу під час активного сеансу оновлювати `.local/progress/state.json` і запускати:
 
 ```powershell

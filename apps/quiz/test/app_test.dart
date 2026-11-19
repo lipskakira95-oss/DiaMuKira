@@ -86,6 +86,111 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('Android back asks before abandoning an unfinished round', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      QuizApp(
+        store: MemoryUserStore(),
+        loadCatalog: () async =>
+            Catalog([question('q1', 1)], version: 'v1', mode: 'draft'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tapText(tester, 'Розпочнімо');
+    await tapText(tester, 'Діти 5–12 років');
+    await tapText(tester, 'Раунд 1');
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+
+    expect(find.text('Вийти з раунду?'), findsOneWidget);
+    expect(find.text('Залишитися'), findsOneWidget);
+    expect(find.text('Вийти'), findsOneWidget);
+    await tapText(tester, 'Залишитися');
+    expect(find.text('Запитання 1 із 1'), findsOneWidget);
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    await tapText(tester, 'Вийти');
+    expect(find.text('Раунд 1'), findsOneWidget);
+  });
+
+  testWidgets('mobile quiz supports long text at 200 percent scale', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final longText = List.filled(
+      10,
+      'Чи потрібно поважати потреби іншої людини та запитувати, як їй допомогти?',
+    ).join(' ');
+    final longExplanation = List.filled(
+      8,
+      'Спочатку варто вислухати людину й не вирішувати замість неї.',
+    ).join(' ');
+
+    await tester.pumpWidget(
+      MediaQuery(
+        data: const MediaQueryData(textScaler: TextScaler.linear(2)),
+        child: QuizApp(
+          store: MemoryUserStore(),
+          loadCatalog: () async => Catalog(
+            [question('q1', 1, text: longText, explanation: longExplanation)],
+            version: 'v1',
+            mode: 'draft',
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tapText(tester, 'Розпочнімо');
+    await tapText(tester, 'Діти 5–12 років');
+    await tapText(tester, 'Раунд 1');
+
+    expect(find.text('Повага'), findsOneWidget);
+    expect(
+      tester.getSize(find.widgetWithText(FilledButton, 'Ні')).height,
+      greaterThanOrEqualTo(48),
+    );
+    expect(
+      tester.getSize(find.widgetWithText(FilledButton, 'Так')).height,
+      greaterThanOrEqualTo(48),
+    );
+    await tapText(tester, 'Ні');
+    expect(find.text(longExplanation), findsOneWidget);
+    await tester.ensureVisible(find.text('Завершити раунд'));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('mobile settings open as a safe full-screen page', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      QuizApp(
+        store: MemoryUserStore(),
+        loadCatalog: () async =>
+            Catalog([question('q1', 1)], version: 'v1', mode: 'draft'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Налаштування'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('mobile-settings-page')), findsOneWidget);
+    expect(
+      find.text('Налаштування зберігаються на цьому пристрої.'),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('completed progress is restored after rebuilding the app', (
     tester,
   ) async {

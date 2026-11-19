@@ -7,7 +7,12 @@ plugins {
 android {
     namespace = "ua.diiamy.diia_my"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+    val projectNdk = rootProject.file("../../../.local/tools/android-sdk/ndk/28.2.13676358")
+    if (projectNdk.exists()) {
+        ndkPath = projectNdk.absolutePath
+    } else {
+        ndkVersion = flutter.ndkVersion
+    }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

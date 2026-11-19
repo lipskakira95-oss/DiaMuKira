@@ -9,6 +9,8 @@ Question question(
   int position, {
   bool answer = true,
   String version = 'v1',
+  String? text,
+  String? explanation,
 }) => Question(
   id: id,
   categoryId: 'children',
@@ -16,9 +18,9 @@ Question question(
   roundNumber: 1,
   roundTitle: 'Повага',
   position: position,
-  text: 'Запитання $id',
+  text: text ?? 'Запитання $id',
   correctAnswer: answer,
-  explanation: 'Пояснення $id',
+  explanation: explanation ?? 'Пояснення $id',
   status: 'draft',
   contentVersion: version,
 );

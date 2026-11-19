@@ -214,9 +214,8 @@ class _QuizHomeState extends State<QuizHome> {
     }
   }
 
-  Future<void> _saveSettings(AppSettings settings, StateSetter refresh) async {
+  Future<void> _saveSettings(AppSettings settings) async {
     setState(() => _settingsState = settings);
-    refresh(() {});
     try {
       await _store.saveSettings(settings);
     } on Exception {
@@ -229,92 +228,43 @@ class _QuizHomeState extends State<QuizHome> {
   }
 
   Future<void> _settings() async {
+    final panel = _SettingsPanel(
+      initialSettings: _settingsState,
+      onChanged: _saveSettings,
+    );
+    if (MediaQuery.sizeOf(context).width < 600) {
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute(
+          builder: (context) => Scaffold(
+            key: const Key('mobile-settings-page'),
+            appBar: AppBar(
+              backgroundColor: yellow,
+              foregroundColor: ink,
+              title: const Text('Налаштування'),
+            ),
+            body: SafeArea(child: panel),
+          ),
+        ),
+      );
+      return;
+    }
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (context) => SafeArea(
-        child: StatefulBuilder(
-          builder: (context, refresh) => SingleChildScrollView(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Налаштування',
-                    style: Theme.of(context).textTheme.headlineSmall,
-                  ),
-                  const SizedBox(height: 12),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Пояснювати помилки'),
-                    value: _settingsState.explanations,
-                    onChanged: (value) {
-                      _saveSettings(
-                        _settingsState.copyWith(explanations: value),
-                        refresh,
-                      );
-                    },
-                  ),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Перемішувати запитання'),
-                    subtitle: const Text('Застосовується до нової спроби.'),
-                    value: _settingsState.shuffle,
-                    onChanged: (value) {
-                      _saveSettings(
-                        _settingsState.copyWith(shuffle: value),
-                        refresh,
-                      );
-                    },
-                  ),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Звукові ефекти'),
-                    subtitle: const Text(
-                      'Використовуються там, де підтримуються.',
-                    ),
-                    value: _settingsState.sound,
-                    onChanged: (value) {
-                      _saveSettings(
-                        _settingsState.copyWith(sound: value),
-                        refresh,
-                      );
-                    },
-                  ),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Вібрація при помилці'),
-                    subtitle: const Text('Залежить від можливостей пристрою.'),
-                    value: _settingsState.vibration,
-                    onChanged: (value) {
-                      _saveSettings(
-                        _settingsState.copyWith(vibration: value),
-                        refresh,
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  const Text('Налаштування зберігаються на цьому пристрої.'),
-                  const SizedBox(height: 16),
-                  FilledButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text('Готово'),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
+      builder: (context) => SafeArea(child: panel),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     final canBack = _page != _Page.welcome;
+    final mobile = MediaQuery.sizeOf(context).width < 600;
+    final title = mobile && _category != null && _page != _Page.categories
+        ? (_page == _Page.quiz || _page == _Page.result
+              ? _attempt?.current.roundTitle ?? 'Дія Ми'
+              : _catalog!.inCategory(_category!).first.categoryName)
+        : 'Дія Ми';
     return PopScope(
       canPop: !canBack,
       onPopInvokedWithResult: (didPop, result) {
@@ -341,9 +291,11 @@ class _QuizHomeState extends State<QuizHome> {
                   ),
                 )
               : null,
-          title: const Text(
-            'Дія Ми',
-            style: TextStyle(fontWeight: FontWeight.w800),
+          title: Text(
+            title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontWeight: FontWeight.w800),
           ),
           actions: [
             IconButton(
@@ -755,6 +707,82 @@ class _QuizHomeState extends State<QuizHome> {
           ],
         ),
       ),
+    ),
+  );
+}
+
+class _SettingsPanel extends StatefulWidget {
+  const _SettingsPanel({
+    required this.initialSettings,
+    required this.onChanged,
+  });
+
+  final AppSettings initialSettings;
+  final Future<void> Function(AppSettings settings) onChanged;
+
+  @override
+  State<_SettingsPanel> createState() => _SettingsPanelState();
+}
+
+class _SettingsPanelState extends State<_SettingsPanel> {
+  late AppSettings _settings;
+
+  @override
+  void initState() {
+    super.initState();
+    _settings = widget.initialSettings;
+  }
+
+  void _change(AppSettings settings) {
+    setState(() => _settings = settings);
+    unawaited(widget.onChanged(settings));
+  }
+
+  @override
+  Widget build(BuildContext context) => SingleChildScrollView(
+    padding: const EdgeInsets.all(24),
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text('Налаштування', style: Theme.of(context).textTheme.headlineSmall),
+        const SizedBox(height: 12),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Пояснювати помилки'),
+          value: _settings.explanations,
+          onChanged: (value) =>
+              _change(_settings.copyWith(explanations: value)),
+        ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Перемішувати запитання'),
+          subtitle: const Text('Застосовується до нової спроби.'),
+          value: _settings.shuffle,
+          onChanged: (value) => _change(_settings.copyWith(shuffle: value)),
+        ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Звукові ефекти'),
+          subtitle: const Text('Використовуються там, де підтримуються.'),
+          value: _settings.sound,
+          onChanged: (value) => _change(_settings.copyWith(sound: value)),
+        ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Вібрація при помилці'),
+          subtitle: const Text('Залежить від можливостей пристрою.'),
+          value: _settings.vibration,
+          onChanged: (value) => _change(_settings.copyWith(vibration: value)),
+        ),
+        const SizedBox(height: 12),
+        const Text('Налаштування зберігаються на цьому пристрої.'),
+        const SizedBox(height: 16),
+        FilledButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Готово'),
+        ),
+      ],
     ),
   );
 }
