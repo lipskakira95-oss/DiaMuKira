@@ -22,4 +22,45 @@ xcrun simctl bootstatus "$DEVICE_ID" -b
 
 cd "$ROOT/apps/quiz"
 flutter pub get
-flutter test integration_test/ios_smoke_test.dart -d "$DEVICE_ID" --no-pub
+
+diagnose_failure() {
+  status=$?
+  if [[ $status -ne 0 ]]; then
+    echo "iPhone smoke failed; recent Runner simulator log follows." >&2
+    xcrun simctl spawn "$DEVICE_ID" log show \
+      --last 20m --style compact \
+      --predicate 'process == "Runner"' || true
+  fi
+  exit "$status"
+}
+trap diagnose_failure EXIT
+
+# Flutter can wait forever when a simulator app never connects to the test
+# service. Stream verbose output and give the whole launch/test process a
+# bounded 15 minutes so CI returns evidence instead of hanging until job
+# timeout.
+python3 - "$DEVICE_ID" <<'PY'
+import subprocess
+import sys
+
+device_id = sys.argv[1]
+command = [
+    "flutter",
+    "test",
+    "integration_test/ios_smoke_test.dart",
+    "-d",
+    device_id,
+    "--no-pub",
+    "--reporter",
+    "expanded",
+    "--verbose",
+]
+try:
+    completed = subprocess.run(command, timeout=15 * 60, check=False)
+except subprocess.TimeoutExpired:
+    print("iPhone smoke timed out after 15 minutes.", file=sys.stderr)
+    raise SystemExit(124)
+raise SystemExit(completed.returncode)
+PY
+
+trap - EXIT
