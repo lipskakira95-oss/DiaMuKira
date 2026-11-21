@@ -1,4 +1,5 @@
 import 'package:material_ui/material_ui.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:diia_my/app.dart';
 import 'package:diia_my/data/memory_user_store.dart';
@@ -19,6 +20,13 @@ class RecordingFeedback implements AnswerFeedback {
   }) async {
     this.correct = correct;
     this.settings = settings;
+  }
+}
+
+class FailingSaveStore extends MemoryUserStore {
+  @override
+  Future<void> saveCompletedAttempt(SavedRoundProgress progress) async {
+    throw Exception('disk full');
   }
 }
 
@@ -251,4 +259,156 @@ void main() {
       expect(feedback.settings?.vibration, isTrue);
     },
   );
+
+  testWidgets('deep link opens a round and an invalid link explains recovery', (
+    tester,
+  ) async {
+    final catalog = Catalog([question('q1', 1)], version: 'v1', mode: 'draft');
+    await tester.pumpWidget(
+      QuizApp(
+        store: MemoryUserStore(),
+        initialPath: '/rounds/children-1',
+        loadCatalog: () async => catalog,
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Запитання 1 із 1'), findsOneWidget);
+
+    await tester.pumpWidget(
+      QuizApp(
+        key: const ValueKey('invalid-route'),
+        store: MemoryUserStore(),
+        initialPath: '/rounds/unknown-9',
+        loadCatalog: () async => catalog,
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Посилання недійсне'), findsOneWidget);
+    expect(find.text('До категорій'), findsOneWidget);
+  });
+
+  testWidgets(
+    'quiz exposes progress, question and feedback to screen readers',
+    (tester) async {
+      final semantics = tester.ensureSemantics();
+      await tester.pumpWidget(
+        QuizApp(
+          store: MemoryUserStore(),
+          loadCatalog: () async =>
+              Catalog([question('q1', 1)], version: 'v1', mode: 'draft'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tapText(tester, 'Розпочнімо');
+      await tapText(tester, 'Діти 5–12 років');
+      await tapText(tester, 'Раунд 1');
+
+      final progress = tester.getSemantics(
+        find.bySemanticsLabel('Прогрес раунду'),
+      );
+      expect(progress.value, '100%');
+      expect(
+        tester.getSemantics(find.text('Запитання q1')).flagsCollection.isHeader,
+        isTrue,
+      );
+      await tapText(tester, 'Так');
+      expect(
+        tester
+            .getSemantics(find.text('Правильно!'))
+            .flagsCollection
+            .isLiveRegion,
+        isTrue,
+      );
+      semantics.dispose();
+    },
+  );
+
+  testWidgets('primary flow can start with keyboard only', (tester) async {
+    await tester.pumpWidget(
+      QuizApp(
+        store: MemoryUserStore(),
+        loadCatalog: () async =>
+            Catalog([question('q1', 1)], version: 'v1', mode: 'draft'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    bool hasFocus() =>
+        Focus.of(tester.element(find.text('Розпочнімо'))).hasFocus;
+    for (var i = 0; i < 5 && !hasFocus(); i++) {
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+    }
+    expect(hasFocus(), isTrue);
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pumpAndSettle();
+    expect(find.text('Для кого ця гра?'), findsOneWidget);
+  });
+
+  testWidgets('failed progress write is explained without a false success', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      QuizApp(
+        store: FailingSaveStore(),
+        loadCatalog: () async =>
+            Catalog([question('q1', 1)], version: 'v1', mode: 'draft'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tapText(tester, 'Розпочнімо');
+    await tapText(tester, 'Діти 5–12 років');
+    await tapText(tester, 'Раунд 1');
+    await tapText(tester, 'Так');
+    await tapText(tester, 'Завершити раунд');
+    expect(
+      find.text('Прогрес залишився лише до закриття застосунку.'),
+      findsOneWidget,
+    );
+    expect(find.text('Прогрес збережено на цьому пристрої.'), findsNothing);
+  });
+
+  test('design colors meet WCAG AA contrast for normal text', () {
+    double contrast(Color first, Color second) {
+      final firstLuminance = first.computeLuminance();
+      final secondLuminance = second.computeLuminance();
+      final high = firstLuminance > secondLuminance
+          ? firstLuminance
+          : secondLuminance;
+      final low = firstLuminance > secondLuminance
+          ? secondLuminance
+          : firstLuminance;
+      return (high + 0.05) / (low + 0.05);
+    }
+
+    expect(contrast(ink, yellow), greaterThanOrEqualTo(4.5));
+    expect(contrast(ink, paper), greaterThanOrEqualTo(4.5));
+    expect(contrast(Colors.white, green), greaterThanOrEqualTo(4.5));
+    expect(contrast(Colors.white, red), greaterThanOrEqualTo(4.5));
+  });
+
+  testWidgets('target phone, tablet and desktop sizes do not overflow', (
+    tester,
+  ) async {
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    for (final size in const [
+      Size(390, 844),
+      Size(768, 1024),
+      Size(1440, 900),
+    ]) {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      await tester.pumpWidget(
+        QuizApp(
+          key: ValueKey(size),
+          store: MemoryUserStore(),
+          loadCatalog: () async =>
+              Catalog([question('q1', 1)], version: 'v1', mode: 'draft'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tapText(tester, 'Розпочнімо');
+      expect(tester.takeException(), isNull, reason: 'viewport $size');
+    }
+  });
 }

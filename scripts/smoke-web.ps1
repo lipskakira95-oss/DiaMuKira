@@ -13,8 +13,16 @@ try {
   try {if((Invoke-RestMethod "http://127.0.0.1:$Port/health" -TimeoutSec 2).status -eq 'ok'){$Ready=$true;break}}catch{Start-Sleep -Milliseconds 200}
  }
  if(-not $Ready){throw 'Web/API server failed to start'}
- & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'smoke-browser.ps1') -Url "http://127.0.0.1:$Port/"
- if($LASTEXITCODE -ne 0){throw 'End-to-end web smoke failed'}
+ $Browsers=@(
+  @{Name='Chrome';Path='C:/Program Files/Google/Chrome/Application/chrome.exe';Profile=(Join-Path $ProjectRoot '.local/browser-smoke-chrome')},
+  @{Name='Edge';Path='C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';Profile=(Join-Path $ProjectRoot '.local/browser-smoke-edge')}
+ )
+ foreach($Browser in $Browsers){
+  if(-not (Test-Path $Browser.Path)){throw ($Browser.Name + ' is required for the web quality matrix')}
+  Write-Output ('Running web smoke in ' + $Browser.Name)
+  & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'smoke-browser.ps1') -Url "http://127.0.0.1:$Port/" -Chrome $Browser.Path -Profile $Browser.Profile
+  if($LASTEXITCODE -ne 0){throw ($Browser.Name + ' end-to-end web smoke failed')}
+ }
 }finally{
  if(-not $Process.HasExited){$Process.Kill();$Process.WaitForExit()}
 }

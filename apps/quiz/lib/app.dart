@@ -1,6 +1,8 @@
 import 'dart:math';
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
 import 'data/content_repository.dart';
@@ -18,10 +20,17 @@ const green = Color(0xFF247A43), red = Color(0xFFB73535);
 typedef CatalogLoader = Future<Catalog> Function();
 
 class QuizApp extends StatelessWidget {
-  const QuizApp({super.key, this.loadCatalog, this.store, this.feedback});
+  const QuizApp({
+    super.key,
+    this.loadCatalog,
+    this.store,
+    this.feedback,
+    this.initialPath,
+  });
   final CatalogLoader? loadCatalog;
   final UserStore? store;
   final AnswerFeedback? feedback;
+  final String? initialPath;
   @override
   Widget build(BuildContext context) => MaterialApp(
     title: 'Дія Ми',
@@ -55,17 +64,45 @@ class QuizApp extends StatelessWidget {
         bodyLarge: TextStyle(fontSize: 18, color: ink),
       ),
     ),
-    home: QuizHome(loadCatalog: loadCatalog, store: store, feedback: feedback),
+    home: QuizHome(
+      loadCatalog: loadCatalog,
+      store: store,
+      feedback: feedback,
+      initialPath: initialPath,
+    ),
   );
 }
 
-enum _Page { welcome, categories, rounds, quiz, result }
+enum _Page { welcome, categories, rounds, quiz, result, invalid }
+
+class _InitialDestination {
+  const _InitialDestination(
+    this.page, {
+    this.category,
+    this.round,
+    this.openSettings = false,
+    this.invalidPath,
+  });
+
+  final _Page page;
+  final String? category;
+  final int? round;
+  final bool openSettings;
+  final String? invalidPath;
+}
 
 class QuizHome extends StatefulWidget {
-  const QuizHome({super.key, this.loadCatalog, this.store, this.feedback});
+  const QuizHome({
+    super.key,
+    this.loadCatalog,
+    this.store,
+    this.feedback,
+    this.initialPath,
+  });
   final CatalogLoader? loadCatalog;
   final UserStore? store;
   final AnswerFeedback? feedback;
+  final String? initialPath;
   @override
   State<QuizHome> createState() => _QuizHomeState();
 }
@@ -82,6 +119,8 @@ class _QuizHomeState extends State<QuizHome> {
   AppSettings _settingsState = const AppSettings.defaults();
   SessionProgress _progress = SessionProgress();
   String _phrase = '';
+  String? _invalidPath;
+  bool _progressSaveFailed = false;
   @override
   void initState() {
     super.initState();
@@ -118,13 +157,32 @@ class _QuizHomeState extends State<QuizHome> {
       } on Exception {
         savedProgress = const [];
       }
+      final destination = _resolveInitialPath(
+        catalog,
+        widget.initialPath ?? '/',
+      );
+      final attempt = destination.round == null
+          ? null
+          : QuizAttempt(
+              catalog.inRound(destination.category!, destination.round!),
+              shuffle: settings.shuffle,
+            );
       if (mounted) {
         setState(() {
           _catalog = catalog;
           _settingsState = settings;
           _progress = SessionProgress(savedProgress);
+          _page = destination.page;
+          _category = destination.category;
+          _attempt = attempt;
+          _invalidPath = destination.invalidPath;
           _loading = false;
         });
+        if (destination.openSettings) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) unawaited(_settings());
+          });
+        }
       }
     } on Exception {
       if (mounted) {
@@ -136,7 +194,63 @@ class _QuizHomeState extends State<QuizHome> {
     }
   }
 
-  void _go(_Page page) => setState(() => _page = page);
+  _InitialDestination _resolveInitialPath(Catalog catalog, String rawPath) {
+    final segments = Uri.tryParse(rawPath)?.pathSegments ?? const <String>[];
+    if (segments.isEmpty) return const _InitialDestination(_Page.welcome);
+    if (segments.length == 1 && segments.first == 'categories') {
+      return const _InitialDestination(_Page.categories);
+    }
+    if (segments.length == 1 && segments.first == 'settings') {
+      return const _InitialDestination(_Page.welcome, openSettings: true);
+    }
+    if (segments.length == 3 &&
+        segments[0] == 'categories' &&
+        segments[2] == 'rounds' &&
+        catalog.categories.contains(segments[1])) {
+      return _InitialDestination(_Page.rounds, category: segments[1]);
+    }
+    if (segments.length == 2 && segments.first == 'rounds') {
+      final separator = segments[1].lastIndexOf('-');
+      if (separator > 0) {
+        final category = segments[1].substring(0, separator);
+        final round = int.tryParse(segments[1].substring(separator + 1));
+        if (round != null && catalog.inRound(category, round).isNotEmpty) {
+          return _InitialDestination(
+            _Page.quiz,
+            category: category,
+            round: round,
+          );
+        }
+      }
+    }
+    return _InitialDestination(_Page.invalid, invalidPath: rawPath);
+  }
+
+  String _pathFor(_Page page) => switch (page) {
+    _Page.welcome => '/',
+    _Page.categories => '/categories',
+    _Page.rounds => '/categories/$_category/rounds',
+    _Page.quiz ||
+    _Page.result => '/rounds/$_category-${_attempt!.current.roundNumber}',
+    _Page.invalid => _invalidPath ?? '/',
+  };
+
+  void _updateBrowserPath(String path, {bool replace = false}) {
+    if (kIsWeb) {
+      unawaited(
+        SystemNavigator.routeInformationUpdated(
+          uri: Uri.parse(path),
+          replace: replace,
+        ),
+      );
+    }
+  }
+
+  void _go(_Page page) {
+    setState(() => _page = page);
+    _updateBrowserPath(_pathFor(page));
+  }
+
   Future<void> _leave(_Page destination) async {
     if (_page == _Page.quiz && !_attempt!.finished) {
       final confirmed = await showDialog<bool>(
@@ -161,13 +275,17 @@ class _QuizHomeState extends State<QuizHome> {
     _go(destination);
   }
 
-  void _start(int round) => setState(() {
-    _attempt = QuizAttempt(
-      _catalog!.inRound(_category!, round),
-      shuffle: _settingsState.shuffle,
-    );
-    _page = _Page.quiz;
-  });
+  void _start(int round) {
+    setState(() {
+      _attempt = QuizAttempt(
+        _catalog!.inRound(_category!, round),
+        shuffle: _settingsState.shuffle,
+      );
+      _page = _Page.quiz;
+    });
+    _updateBrowserPath('/rounds/$_category-$round');
+  }
+
   void _answer(bool value) {
     late bool accepted;
     setState(() => accepted = _attempt!.submit(value));
@@ -190,6 +308,7 @@ class _QuizHomeState extends State<QuizHome> {
       _attempt!.next();
       if (_attempt!.finished) {
         completed = _progress.record(_attempt!);
+        _progressSaveFailed = false;
         _page = _Page.result;
         const phrases = [
           'Кожна спроба допомагає вчитися.',
@@ -204,6 +323,7 @@ class _QuizHomeState extends State<QuizHome> {
         await _store.saveCompletedAttempt(completed!);
       } on Exception {
         if (mounted) {
+          setState(() => _progressSaveFailed = true);
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text('Не вдалося зберегти прогрес на цьому пристрої.'),
@@ -228,6 +348,8 @@ class _QuizHomeState extends State<QuizHome> {
   }
 
   Future<void> _settings() async {
+    final returnPath = _pathFor(_page);
+    _updateBrowserPath('/settings');
     final panel = _SettingsPanel(
       initialSettings: _settingsState,
       onChanged: _saveSettings,
@@ -246,6 +368,7 @@ class _QuizHomeState extends State<QuizHome> {
           ),
         ),
       );
+      _updateBrowserPath(returnPath, replace: true);
       return;
     }
     await showModalBottomSheet<void>(
@@ -254,6 +377,7 @@ class _QuizHomeState extends State<QuizHome> {
       showDragHandle: true,
       builder: (context) => SafeArea(child: panel),
     );
+    _updateBrowserPath(returnPath, replace: true);
   }
 
   @override
@@ -378,9 +502,12 @@ class _QuizHomeState extends State<QuizHome> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Text(
-            'Не вдалося завантажити матеріали',
-            textAlign: TextAlign.center,
+          Semantics(
+            header: true,
+            child: const Text(
+              'Не вдалося завантажити матеріали',
+              textAlign: TextAlign.center,
+            ),
           ),
           const SizedBox(height: 20),
           FilledButton(onPressed: _load, child: const Text('Спробувати знову')),
@@ -400,6 +527,8 @@ class _QuizHomeState extends State<QuizHome> {
         return _quiz();
       case _Page.result:
         return _result();
+      case _Page.invalid:
+        return _invalidRoute();
     }
   }
 
@@ -409,9 +538,12 @@ class _QuizHomeState extends State<QuizHome> {
       children: [
         const Icon(Icons.diversity_3, size: 56, color: ink),
         const SizedBox(height: 24),
-        Text(
-          'Різні люди.\nСпільний світ.',
-          style: Theme.of(context).textTheme.headlineLarge,
+        Semantics(
+          header: true,
+          child: Text(
+            'Різні люди.\nСпільний світ.',
+            style: Theme.of(context).textTheme.headlineLarge,
+          ),
         ),
         const SizedBox(height: 20),
         const Text(
@@ -447,9 +579,12 @@ class _QuizHomeState extends State<QuizHome> {
   Widget _categories() => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      Text(
-        'Для кого ця гра?',
-        style: Theme.of(context).textTheme.headlineLarge,
+      Semantics(
+        header: true,
+        child: Text(
+          'Для кого ця гра?',
+          style: Theme.of(context).textTheme.headlineLarge,
+        ),
       ),
       const SizedBox(height: 12),
       const Text('Обери категорію. Її можна змінити у будь-який момент.'),
@@ -478,6 +613,7 @@ class _QuizHomeState extends State<QuizHome> {
                       _category = id;
                       _page = _Page.rounds;
                     });
+                    _updateBrowserPath('/categories/$id/rounds');
                   },
                 ),
               );
@@ -490,9 +626,12 @@ class _QuizHomeState extends State<QuizHome> {
   Widget _rounds() => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      Text(
-        _catalog!.inCategory(_category!).first.categoryName,
-        style: Theme.of(context).textTheme.headlineSmall,
+      Semantics(
+        header: true,
+        child: Text(
+          _catalog!.inCategory(_category!).first.categoryName,
+          style: Theme.of(context).textTheme.headlineSmall,
+        ),
       ),
       const SizedBox(height: 12),
       const Text('Обери раунд. Повторювати можна скільки завгодно.'),
@@ -543,14 +682,20 @@ class _QuizHomeState extends State<QuizHome> {
           const SizedBox(height: 12),
           LinearProgressIndicator(
             value: attempt.number / attempt.total,
+            semanticsLabel: 'Прогрес раунду',
+            semanticsValue:
+                '${(attempt.number * 100 / attempt.total).round()}%',
             color: ink,
             backgroundColor: const Color(0xFFFFF3BD),
           ),
           const SizedBox(height: 32),
-          Text(
-            q.text,
-            style: Theme.of(context).textTheme.headlineSmall
-                ?.copyWith(height: 1.4),
+          Semantics(
+            header: true,
+            child: Text(
+              q.text,
+              style: Theme.of(context).textTheme.headlineSmall
+                  ?.copyWith(height: 1.4),
+            ),
           ),
           const SizedBox(height: 32),
           LayoutBuilder(
@@ -637,9 +782,13 @@ class _QuizHomeState extends State<QuizHome> {
           color: green,
         ),
         const SizedBox(height: 20),
-        Text(
-          'Раунд завершено',
-          style: Theme.of(context).textTheme.headlineSmall,
+        Semantics(
+          header: true,
+          liveRegion: true,
+          child: Text(
+            'Раунд завершено',
+            style: Theme.of(context).textTheme.headlineSmall,
+          ),
         ),
         const SizedBox(height: 16),
         Text(
@@ -664,7 +813,34 @@ class _QuizHomeState extends State<QuizHome> {
           ],
         ),
         const SizedBox(height: 16),
-        const Text('Прогрес збережено на цьому пристрої.'),
+        Text(
+          _progressSaveFailed
+              ? 'Прогрес залишився лише до закриття застосунку.'
+              : 'Прогрес збережено на цьому пристрої.',
+        ),
+      ],
+    ),
+  );
+  Widget _invalidRoute() => _card(
+    Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Semantics(
+          header: true,
+          child: Text(
+            'Посилання недійсне',
+            style: Theme.of(context).textTheme.headlineSmall,
+          ),
+        ),
+        const SizedBox(height: 16),
+        const Text(
+          'Категорію або раунд не знайдено. Оберіть доступну категорію.',
+        ),
+        const SizedBox(height: 24),
+        FilledButton(
+          onPressed: () => _go(_Page.categories),
+          child: const Text('До категорій'),
+        ),
       ],
     ),
   );
@@ -745,7 +921,13 @@ class _SettingsPanelState extends State<_SettingsPanel> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text('Налаштування', style: Theme.of(context).textTheme.headlineSmall),
+        Semantics(
+          header: true,
+          child: Text(
+            'Налаштування',
+            style: Theme.of(context).textTheme.headlineSmall,
+          ),
+        ),
         const SizedBox(height: 12),
         SwitchListTile(
           contentPadding: EdgeInsets.zero,

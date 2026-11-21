@@ -47,7 +47,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/browser-dependencies
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/smoke-web.ps1
 ```
 
-Smoke проходить раунд 7/7, перезавантажує сторінку, перевіряє постійний прогрес, вимикає мережу через Chrome DevTools Protocol і повторює перезавантаження. Chrome-шлях і URL можна перевизначити параметрами `scripts/smoke-browser.ps1`. Windows не підтверджує готовність iOS; збірку й симулятор перевіряє macOS CI, а фізичні функції потребують справжнього iPhone.
+Smoke у Chrome та Edge проходить раунд 7/7, перевіряє URL, перезавантажує сторінку, відновлює прогрес, вимикає мережу й перевіряє прямі та некоректні посилання. Шлях браузера, профіль і URL можна перевизначити параметрами `scripts/smoke-browser.ps1`. Повна [матриця якості та доступності](quality.md) окремо показує виконані й ручні перевірки. Windows не підтверджує готовність iOS; збірку й симулятор перевіряє macOS CI, а фізичні функції потребують справжнього iPhone.
 
 ## Go API та SQLite
 

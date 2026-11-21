@@ -52,6 +52,6 @@ jobs:
       - name: Build Go web host
         shell: powershell
         run: ./scripts/build.ps1
-      - name: Headless Chrome round smoke
+      - name: Chrome and Edge quality smoke
         shell: powershell
         run: ./scripts/smoke-web.ps1

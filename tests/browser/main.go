@@ -9,6 +9,7 @@ import (
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/chromedp"
 	"log"
+	"strings"
 	"time"
 )
 
@@ -54,6 +55,10 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	var roundURL string
+	if err = chromedp.Run(ctx, chromedp.Location(&roundURL)); err != nil || !strings.HasSuffix(roundURL, "/rounds/children-1") {
+		log.Fatalf("round URL was not updated: %q (%v)", roundURL, err)
+	}
 	for index, answer := range []string{"Так", "Ні", "Так", "Ні", "Ні", "Так", "Так"} {
 		next := "Далі"
 		if index == 6 {
@@ -83,5 +88,20 @@ func main() {
 		clickText("Діти 5–12 років"), waitText("найкраще 7")); err != nil {
 		log.Fatal(err)
 	}
-	fmt.Println("BROWSER SMOKE PASS: 7/7 -> persistent SQLite progress -> offline reload")
+
+	// A copied deep link must restore the round, while a bad ID must give a
+	// visible recovery screen instead of a blank page.
+	if err = chromedp.Run(ctx,
+		network.EmulateNetworkConditions(false, 0, 0, 0),
+		chromedp.Navigate(strings.TrimSuffix(*url, "/")+"/rounds/children-1"),
+		enableSemantics(), waitText("Запитання 1 із 7"),
+		chromedp.Navigate(strings.TrimSuffix(*url, "/")+"/rounds/unknown-9"),
+		enableSemantics(), waitText("Посилання недійсне"), waitText("До категорій"),
+		chromedp.Navigate(strings.TrimSuffix(*url, "/")+"/settings"),
+		enableSemantics(), waitText("Готово"),
+		chromedp.Navigate(strings.TrimSuffix(*url, "/")+"/categories/parents/rounds"),
+		enableSemantics(), waitText("Батьки"), waitText("Раунд 4")); err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("BROWSER SMOKE PASS: URLs -> 7/7 -> persistent SQLite -> offline -> deep links")
 }
