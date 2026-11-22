@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "app_name": "Дія Ми",
+  "version": "1.0.0+1",
+  "release_channel": "preview",
+  "production_ready": false,
+  "android_application_id": "ua.diiamy.diia_my",
+  "ios_bundle_id": "ua.diiamy.diiaMy",
+  "content_mode": "draft",
+  "content_version": "draft-1",
+  "question_count": 152,
+  "round_count": 18,
+  "offline_first": true,
+  "production_api_required_for_online_release": true,
+  "blocking_requirements": [
+    "editorial approval for all 152 questions",
+    "HTTPS production API URL",
+    "Android upload key",
+    "Apple Developer signing identity and provisioning profile",
+    "physical Android and iPhone acceptance checks"
+  ]
+}

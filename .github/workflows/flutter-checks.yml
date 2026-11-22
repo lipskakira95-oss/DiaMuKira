@@ -1,6 +1,8 @@
 name: Flutter client
 on:
   push:
+    branches:
+      - '**'
   pull_request:
 permissions:
   contents: read
@@ -55,3 +57,18 @@ jobs:
       - name: Chrome and Edge quality smoke
         shell: powershell
         run: ./scripts/smoke-web.ps1
+      - name: Package and smoke offline web preview
+        shell: powershell
+        run: |
+          ./scripts/package-web.ps1 -OfflineOnly
+          $package = Get-ChildItem .local/release/diia-my-web-*.zip | Select-Object -First 1
+          ./scripts/smoke-web-package.ps1 -Package $package.FullName
+      - name: Upload web preview
+        uses: actions/upload-artifact@v4
+        with:
+          name: diia-my-web-preview
+          path: |
+            .local/release/diia-my-web-*.zip
+            .local/release/diia-my-web-*.zip.sha256
+          if-no-files-found: error
+          retention-days: 30

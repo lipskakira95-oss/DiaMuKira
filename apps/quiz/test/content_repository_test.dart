@@ -130,4 +130,20 @@ void main() {
     );
     expect((await offline.load()).version, 'draft-1');
   });
+
+  test('offline release skips the network and uses bundled content', () async {
+    var requests = 0;
+    final repository = ContentRepository(
+      offlineOnly: true,
+      client: MockClient((_) async {
+        requests++;
+        return http.Response('unexpected', 500);
+      }),
+      loadBundled: () async => jsonEncode(bundle()),
+    );
+
+    final catalog = await repository.load();
+    expect(requests, 0);
+    expect(catalog.origin, 'bundled');
+  });
 }

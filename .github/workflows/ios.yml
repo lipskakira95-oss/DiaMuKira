@@ -2,12 +2,14 @@ name: iOS
 
 on:
   push:
+    branches:
+      - '**'
   pull_request:
 
 jobs:
   build-and-smoke:
     runs-on: macos-15
-    timeout-minutes: 45
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
@@ -30,12 +32,28 @@ jobs:
         run: bash scripts/build-ios.sh debug
       - name: Run iPhone smoke test
         run: bash scripts/smoke-ios.sh "$IOS_DEVICE_ID"
+      - name: Build unsigned iPhone archive
+        run: |
+          bash scripts/archive-ios.sh "" true
+          test ! -d .local/release/diia-my-iphone.xcarchive/Products/Applications/Runner.app/_CodeSignature
       - name: Package simulator app
         if: success()
-        run: ditto -c -k --sequesterRsrc --keepParent apps/quiz/build/ios/iphonesimulator/Runner.app diia-my-iphone-simulator.zip
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent apps/quiz/build/ios/iphonesimulator/Runner.app diia-my-iphone-simulator.zip
+          ditto -c -k --sequesterRsrc --keepParent .local/release/diia-my-iphone.xcarchive diia-my-iphone-archive.zip
+          shasum -a 256 diia-my-iphone-archive.zip > diia-my-iphone-archive.zip.sha256
       - uses: actions/upload-artifact@v4
         with:
           name: diia-my-iphone-simulator
           path: diia-my-iphone-simulator.zip
+          if-no-files-found: error
+          retention-days: 30
+      - uses: actions/upload-artifact@v4
+        with:
+          name: diia-my-iphone-preview-archive
+          path: |
+            diia-my-iphone-archive.zip
+            diia-my-iphone-archive.zip.sha256
+            release/release.json
           if-no-files-found: error
           retention-days: 30

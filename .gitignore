@@ -12,3 +12,10 @@
 *.sqlite-journal
 *.sqlite-wal
 *.sqlite-shm
+
+# Release signing material must stay outside Git
+*.jks
+*.keystore
+*.p12
+*.mobileprovision
+/apps/quiz/android/key.properties

@@ -1,6 +1,8 @@
 name: Go SQLite catalog
 on:
   push:
+    branches:
+      - '**'
   pull_request:
 permissions:
   contents: read

@@ -28,7 +28,7 @@
 ./scripts/build-ios.sh release https://example.org
 ```
 
-Підпис, профіль розповсюдження та архів для App Store буде додано на етапі випуску. Секрети Apple не зберігаються в Git.
+Непідписаний `.xcarchive` для технічної перевірки створює `scripts/archive-ios.sh`. Підпис і export для App Store потребують Apple Developer Team, distribution certificate та provisioning profile. Секрети Apple не зберігаються в Git; повний порядок наведено в [інструкції випуску](release.md).
 
 ## Автоматичні перевірки
 

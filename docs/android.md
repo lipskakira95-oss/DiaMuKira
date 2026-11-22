@@ -30,7 +30,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-android.ps1 -M
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-android.ps1 -Mode release -ApiBaseUrl https://example.org
 ```
 
-Release-варіант зараз підписується тестовим debug-ключем Flutter і не придатний для Google Play. На етапі випуску потрібні окремий upload key, GitHub Secret та Android App Bundle.
+Release-варіант більше не використовує тестовий debug-ключ. Без чотирьох захищених `ANDROID_*` змінних створюється непідписаний preview AAB; з upload key можна створити підписані APK/AAB. Повні команди й назви змінних наведені в [інструкції випуску](release.md).
 
 ## Перевірки
 
