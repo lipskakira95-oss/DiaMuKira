@@ -19,3 +19,7 @@
 *.p12
 *.mobileprovision
 /apps/quiz/android/key.properties
+
+# Local IDE and Kotlin compiler state
+/.idea/
+**/.kotlin/
